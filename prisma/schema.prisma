@@ -9,43 +9,55 @@ datasource db {
 }
 
 model User {
-  id        String      @id @default(cuid())
-  email     String      @unique
+  id        Int        @id @default(autoincrement())
   name      String?
-  createdAt DateTime    @default(now())
-  items Item[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  plaidItems PlaidItem[]
 }
 
-model Item {
-  id          String    @id @default(cuid())
-  userId      String
+model PlaidItem {
+  id          Int        @id @default(autoincrement())
+  itemId      String     @unique
   accessToken String
-  itemId      String
-  bankName    String?
-  createdAt   DateTime  @default(now())
-  user        User      @relation(fields: [userId], references: [id])
-  accounts    Account[]
+  institution String?    // e.g., "Chase", "Wells Fargo"
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id])
+
+  accounts     Account[]
 }
 
+// Bank accounts under each PlaidItem (e.g., checking, savings, credit card)
 model Account {
-  id        String      @id @default(cuid())
-  itemId    String
-  name      String   // e.g., "Chase Checking"
-  mask      String?  // last 4 digits
-  type      String   // checking, savings, credit, etc.
-  createdAt DateTime    @default(now())
+  id          Int        @id @default(autoincrement())
+  accountId   String     @unique // Plaid's account_id
+  name        String
+  type        String     // e.g., "depository", "credit"
+  subtype     String?    // e.g., "checking", "savings"
+  mask        String?    // last 2–4 digits of acct #
+  balance     Float?     // current available balance
+  createdAt   DateTime   @default(now())
 
-  item      Item        @relation(fields: [itemId], references: [id])
+  plaidItemId Int
+  plaidItem   PlaidItem @relation(fields: [plaidItemId], references: [id])
+
   transactions Transaction[]
 }
 
-
+// Transactions belong to an account
 model Transaction {
-  id          String    @id @default(cuid())
-  accountId   String
-  amount      Float
-  category    String
-  date        DateTime
-  description String?
-  account     Account   @relation(fields: [accountId], references: [id])
+  id             Int      @id @default(autoincrement())
+  plaidId        String   @unique   // Plaid's transaction_id
+  amount         Float
+  date           DateTime
+  name           String
+  category       String?
+  createdAt      DateTime @default(now())
+
+  accountId Int
+  account   Account @relation(fields: [accountId], references: [id])
 }

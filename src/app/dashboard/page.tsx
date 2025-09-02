@@ -1,93 +1,90 @@
 "use client";
 
 import { useEffect, useState } from "react";
-
-type Transaction = {
-  id: string;
-  amount: number;
-  description: string;
-  category: string;
-  date: string;
-};
-// FIX SUBTYPE IN ACCOUNT
-type Account = {
-  id: string;
-  name: string;
-  subtype?: string;
-  type?: string;
-  mask?: string;
-  transactions: Transaction[];
-};
-
-type Item = {
-  id: string;
-  bankName: string;
-  accounts: Account[];
-};
+import { usePlaidLink } from "react-plaid-link";
+import { Account } from "@/lib/types"
 
 export default function DashboardPage() {
-  const [items, setItems] = useState<Item[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [hiddenAccounts, setHiddenAccounts] = useState<string[]>([]);
 
   useEffect(() => {
-    async function fetchAccounts() {
-      try {
-        const res = await fetch("/api/accounts");
-        const data = await res.json();
-        if (data.success) setItems(data.items);
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    }
+    fetch("/api/plaid/create-link-token", { method: "POST" })
+      .then(res => res.json())
+      .then(data => setLinkToken(data.link_token));
+  }, []);
 
+  const fetchAccounts = async () => {
+    const res = await fetch("/api/plaid/accounts");
+    const data = await res.json();
+    setAccounts(data.accounts ?? []);
+  };
+
+  useEffect(() => {
     fetchAccounts();
   }, []);
 
-  if (loading) return <p className="text-gray-900">Loading...</p>;
+  const { open, ready } = usePlaidLink({
+    token: linkToken ?? "",
+    onSuccess: async (public_token: string) => {
+      await fetch("/api/plaid/exchange-link-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ public_token }),
+      });
+      fetchAccounts();
+    },
+  });
 
   return (
-    <div className="p-8">
-      <h1 className="text-2xl font-bold mb-6 text-white-900">Dashboard</h1>
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-4">Finance Dashboard</h1>
+      <button
+        onClick={() => open()}
+        disabled={!ready || !linkToken}
+        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 mb-6"
+      >
+        Connect Bank
+      </button>
 
-      {items.length === 0 && <p className="text-gray-800">No accounts linked yet.</p>}
+      {accounts.filter(acc => !hiddenAccounts.includes(acc.accountId)).length === 0 ? (
+        <p>No accounts yet. Connect a bank to see your accounts.</p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {accounts
+            .filter(acc => !hiddenAccounts.includes(acc.accountId))
+            .map(acc => (
+              <div key={acc.accountId} className="p-4 border rounded shadow relative">
+                <h2 className="font-bold">{acc.name}</h2>
+                <p className="text-sm">{acc.subtype} • {acc.institution}</p>
+                <p className="text-lg font-semibold">${acc.balance.toFixed(2)}</p>
 
-      {items.map((item) => (
-        <div key={item.id} className="mb-8">
-          <h2 className="text-xl font-semibold mb-2 text-white-900">{item.bankName}</h2>
+                <button
+                  className="absolute top-2 right-2 text-yellow-600 hover:text-yellow-800"
+                  onClick={() => setHiddenAccounts(prev => [...prev, acc.accountId])}
+                >
+                  Hide
+                </button>
+              </div>
+            ))}
+        </div>
+      )}
 
-          {item.accounts.map((account) => (
-            <div
-              key={account.id}
-              className="border p-4 rounded mb-4 bg-gray-50"
+      {hiddenAccounts.length > 0 && (
+        <div className="mt-4">
+          <h3 className="font-bold mb-2">Hidden Accounts</h3>
+          {hiddenAccounts.map(id => (
+            <button
+              key={id}
+              className="px-2 py-1 m-1 bg-green-600 text-white rounded"
+              onClick={() => setHiddenAccounts(prev => prev.filter(accId => accId !== id))}
             >
-              <h3 className="font-medium text-gray-900">
-                {account.name} {account.mask ? `(****${account.mask})` : ""}
-              </h3>
-              <p className="text-sm text-gray-700">
-                {account.type} {account.subtype ? `- ${account.subtype}` : ""}
-              </p> 
-
-              {account.transactions.length === 0 ? (
-                <p className="mt-2 text-gray-700">No transactions</p>
-              ) : (
-                <ul className="mt-2">
-                  {account.transactions.map((tx) => (
-                    <li key={tx.id} className="border-b py-1 text-gray-800">
-                      <span className="font-medium text-gray-900">${tx.amount}</span> -{" "}
-                      {tx.description}{" "}
-                      <span className="text-gray-700 text-sm">
-                        ({new Date(tx.date).toLocaleDateString()})
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+              Restore
+            </button>
           ))}
         </div>
-      ))}
+      )}
     </div>
   );
 }
