@@ -2,17 +2,22 @@
 
 import { useEffect, useState } from "react";
 import { usePlaidLink } from "react-plaid-link";
-import { Account } from "@/lib/types"
+import { Account, Transaction } from "@/lib/types"
 
 export default function DashboardPage() {
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [hiddenAccounts, setHiddenAccounts] = useState<string[]>([]);
+  const [transactions, setTransactions] = useState<{ [key: string]: Transaction[] }>({});
+  const [expandedAccounts, setExpandedAccounts] = useState<string[]>([]);
 
   useEffect(() => {
-    fetch("/api/plaid/create-link-token", { method: "POST" })
-      .then(res => res.json())
-      .then(data => setLinkToken(data.link_token));
+    const fetchLinkToken = async () => {
+      const res = await fetch("/api/plaid/create-link-token", { method: "POST" });
+      const data = await res.json();
+      setLinkToken(data.link_token);
+    };
+    fetchLinkToken();
   }, []);
 
   const fetchAccounts = async () => {
@@ -37,6 +42,28 @@ export default function DashboardPage() {
     },
   });
 
+  // Fetch transactions for a specific account
+  const fetchTransactions = async (accountId: string) => {
+    // Toggle expansion
+    if (expandedAccounts.includes(accountId)) {
+      setExpandedAccounts(prev => prev.filter(id => id !== accountId));
+      return;
+    }
+
+    setExpandedAccounts(prev => [...prev, accountId]);
+
+    // Only fetch if not already in state
+    if (transactions[accountId]) return;
+
+    const res = await fetch("/api/transactions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accountId }),
+    });
+    const data = await res.json();
+    setTransactions(prev => ({ ...prev, [accountId]: data.transactions || [] }));
+  };
+
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-4">Finance Dashboard</h1>
@@ -56,9 +83,14 @@ export default function DashboardPage() {
             .filter(acc => !hiddenAccounts.includes(acc.accountId))
             .map(acc => (
               <div key={acc.accountId} className="p-4 border rounded shadow relative">
-                <h2 className="font-bold">{acc.name}</h2>
-                <p className="text-sm">{acc.subtype} • {acc.institution}</p>
-                <p className="text-lg font-semibold">${acc.balance.toFixed(2)}</p>
+                <div
+                  onClick={() => fetchTransactions(acc.accountId)}
+                  className="cursor-pointer"
+                >
+                  <h2 className="font-bold">{acc.name}</h2>
+                  <p className="text-sm">{acc.subtype} • {acc.institution}</p>
+                  <p className="text-lg font-semibold">${acc.balance.toFixed(2)}</p>
+                </div>
 
                 <button
                   className="absolute top-2 right-2 text-yellow-600 hover:text-yellow-800"
@@ -66,6 +98,28 @@ export default function DashboardPage() {
                 >
                   Hide
                 </button>
+
+                {expandedAccounts.includes(acc.accountId) && (
+                  <div className="mt-4 border-t pt-2">
+                    {transactions[acc.accountId] ? (
+                      transactions[acc.accountId].length > 0 ? (
+                        <ul className="space-y-1 max-h-64 overflow-y-auto">
+                          {transactions[acc.accountId].map(tx => (
+                            <li key={tx.id} className="p-1 border-b">
+                              <p className="font-semibold">{tx.name}</p>
+                              <p className="text-sm text-gray-600">{new Date(tx.date).toLocaleDateString()}</p>
+                              <p className="text-sm">${tx.amount.toFixed(2)}</p>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p>No transactions in the last 90 days.</p>
+                      )
+                    ) : (
+                      <p>Loading transactions...</p>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
         </div>

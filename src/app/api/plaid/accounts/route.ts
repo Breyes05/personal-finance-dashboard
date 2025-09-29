@@ -12,16 +12,37 @@ export async function GET() {
         name: "Default User",
       },
     });
-    console.log("Created default user with id:", user.id);
   }
   const plaidItems = await prisma.plaidItem.findMany({ where: { userId: 1 } });
   if (plaidItems.length === 0) return NextResponse.json({ accounts: [] });
 
-  // For each bank connection
   const accounts: Account[] = [];
   for (const item of plaidItems) {
     const response = await plaidClient.accountsBalanceGet({ access_token: item.accessToken });
-    response.data.accounts.forEach(acc => {
+
+    for (const acc of response.data.accounts) {
+      // Upsert the account into the database
+      await prisma.account.upsert({
+        where: { accountId: acc.account_id },
+        update: {
+          name: acc.name,
+          balance: acc.balances.available ?? acc.balances.current ?? 0,
+          type: acc.type,
+          subtype: acc.subtype,
+          mask: acc.mask,
+        }, // Update database with new information
+        create: {
+          accountId: acc.account_id,
+          name: acc.name,
+          type: acc.type,
+          subtype: acc.subtype,
+          mask: acc.mask,
+          balance: acc.balances.available ?? acc.balances.current ?? 0,
+          plaidItemId: item.id,
+        },
+      });
+
+      // Push for frontend rendering
       accounts.push({
         accountId: acc.account_id,
         name: acc.name,
@@ -31,7 +52,8 @@ export async function GET() {
         balance: acc.balances.available ?? acc.balances.current ?? 0,
         institution: item.institution ?? "Unknown",
       });
-    });
+    }
   }
+
   return NextResponse.json({ accounts });
 }
